@@ -30,7 +30,9 @@ class CLIArgumentValidator:
         if hasattr(args, 'league'):
             errors.extend(self._validate_league(sport=args.sport, league=args.league))
         
-        if hasattr(args, "season"):
+        if hasattr(args, "season") and hasattr(args, "sport"):
+            errors.extend(self._validate_season(command=args.command, season=args.season, sport=args.sport))
+        elif hasattr(args, "season"):
             errors.extend(self._validate_season(command=args.command, season=args.season))
         
         if hasattr(args, 'date'):
@@ -98,10 +100,12 @@ class CLIArgumentValidator:
 
         return errors
 
-    def _validate_markets(self, sport: Sport, markets: List[str]) -> List[str]:
+    def _validate_markets(self, sport: Sport, markets: Optional[List[str]]) -> List[str]:
         """Validates markets against the selected sport."""
         errors = []
-        
+        if markets is None:
+            return errors
+
         if isinstance(sport, str):
             try:
                 sport = Sport(sport.lower())
@@ -141,7 +145,7 @@ class CLIArgumentValidator:
             )
         return errors
 
-    def _validate_season(self, command: str, season: Optional[str]) -> List[str]:
+    def _validate_season(self, command: str, season: Optional[str], sport: Optional[str] = None) -> List[str]:
         """Validates the season argument (only for scrape_historic command)."""
         errors = []
 
@@ -152,7 +156,21 @@ class CLIArgumentValidator:
             errors.append("The season argument is required for the 'scrape_historic' command.")
             return errors
 
-        # Match format YYYY-YYYY (e.g., 2023-2024)
+        # Determine sport for special validation
+        if hasattr(self, 'args') and getattr(self.args, 'sport', None):
+            sport_val = getattr(self.args, 'sport', None)
+        elif sport:
+            sport_val = sport
+        else:
+            sport_val = None
+
+        if sport_val == "baseball":
+            # For baseball, expect YYYY only
+            if not re.match(r"^\d{4}$", season):
+                errors.append(f"Invalid season format for baseball: '{season}'. Expected format: YYYY (e.g., 2024).")
+            return errors
+
+        # Default: Match format YYYY-YYYY (e.g., 2023-2024)
         season_pattern = re.compile(r"^\d{4}-\d{4}$")
         if not season_pattern.match(season):
             errors.append(f"Invalid season format: '{season}'. Expected format: YYYY-YYYY (e.g., 2023-2024).")

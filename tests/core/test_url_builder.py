@@ -11,15 +11,20 @@ SPORTS_LEAGUES_URLS_MAPPING[Sport.FOOTBALL] = {
 SPORTS_LEAGUES_URLS_MAPPING[Sport.TENNIS] = {
     "atp-tour": f"{ODDSPORTAL_BASE_URL}/tennis/atp-tour",
 }
+SPORTS_LEAGUES_URLS_MAPPING[Sport.BASEBALL] = {
+    "mlb": f"{ODDSPORTAL_BASE_URL}/baseball/usa/mlb",
+}
 
 @pytest.mark.parametrize(
     "sport, league, season, expected_url",
     [
         # Valid cases
-        ("football", "england-premier-league", "2023-2024", f"{ODDSPORTAL_BASE_URL}/football/england/premier-league-2023-2024/results/"),
-        ("tennis", "atp-tour", "2024-2025", f"{ODDSPORTAL_BASE_URL}/tennis/atp-tour-2024-2025/results/"),
+        ("football", "england-premier-league", "2023-2024", f"{ODDSPORTAL_BASE_URL}/football/england/premier-league/-2023-2024/results/"),
+        ("tennis", "atp-tour", "2024-2025", f"{ODDSPORTAL_BASE_URL}/tennis/atp-tour/-2024-2025/results/"),
+        ("baseball", "mlb", "2024", f"{ODDSPORTAL_BASE_URL}/baseball/usa/mlb/-2024/results/"),
         # Without season, should return base league URL
-        ("football", "england-premier-league", None, f"{ODDSPORTAL_BASE_URL}/football/england/premier-league"),
+        ("football", "england-premier-league", None, f"{ODDSPORTAL_BASE_URL}/football/england/premier-league/"),
+        ("baseball", "mlb", None, f"{ODDSPORTAL_BASE_URL}/baseball/usa/mlb/")
     ]
 )
 def test_get_historic_matches_url(sport, league, season, expected_url):
@@ -29,11 +34,15 @@ def test_get_historic_matches_url_invalid_season():
     with pytest.raises(ValueError, match="Invalid season format: 20-2024. Expected format: 'YYYY-YYYY'."):
         URLBuilder.get_historic_matches_url("football", "england-premier-league", "20-2024")
 
+def test_get_historic_matches_url_invalid_season_baseball():
+    with pytest.raises(ValueError, match="Invalid season format for baseball: 2024-2025. Expected format: 'YYYY'."):
+        URLBuilder.get_historic_matches_url("baseball", "mlb", "2024-2025")
+
 @pytest.mark.parametrize(
     "sport, date, league, expected_url",
     [
         # With league
-        ("football", "2025-02-10", "england-premier-league", f"{ODDSPORTAL_BASE_URL}/football/england/premier-league"),
+        ("football", "2025-02-10", "england-premier-league", f"{ODDSPORTAL_BASE_URL}/football/england/premier-league/"),
         # Without league
         ("football", "2025-02-10", None, f"{ODDSPORTAL_BASE_URL}/matches/football/2025-02-10/"),
     ]
@@ -44,8 +53,8 @@ def test_get_upcoming_matches_url(sport, date, league, expected_url):
 @pytest.mark.parametrize(
     "sport, league, expected_url",
     [
-        ("football", "england-premier-league", f"{ODDSPORTAL_BASE_URL}/football/england/premier-league"),
-        ("tennis", "atp-tour", f"{ODDSPORTAL_BASE_URL}/tennis/atp-tour"),
+        ("football", "england-premier-league", f"{ODDSPORTAL_BASE_URL}/football/england/premier-league/"),
+        ("tennis", "atp-tour", f"{ODDSPORTAL_BASE_URL}/tennis/atp-tour/"),
     ]
 )
 def test_get_league_url(sport, league, expected_url):

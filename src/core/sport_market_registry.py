@@ -213,9 +213,29 @@ class SportMarketRegistrar:
             })
 
     @classmethod
+    def register_baseball_markets(cls):
+        """Registers all baseball betting markets."""
+        from utils.sport_market_constants import BaseballMarket
+        SportMarketRegistry.register(Sport.BASEBALL, {
+            BaseballMarket.MONEYLINE.value: cls.create_market_lambda(
+                main_market="Home/Away",
+                odds_labels=["1", "2"]
+            ),
+            BaseballMarket.OVER_UNDER.value: cls.create_market_lambda(
+                main_market="Over/Under",
+                odds_labels=["odds_over", "odds_under"]
+            ),
+            BaseballMarket.RUN_LINE.value: cls.create_market_lambda(
+                main_market="Run Line",
+                odds_labels=["run_line_home", "run_line_away"]
+            ),
+        })
+
+    @classmethod
     def register_all_markets(cls):
         """Registers all sports markets."""
         cls.register_football_markets()
         cls.register_tennis_markets()
         cls.register_basketball_markets()
         cls.register_rugby_league_markets()
+        cls.register_baseball_markets()

@@ -21,23 +21,37 @@ class URLBuilder:
         Args:
             sport (str): The sport for which the URL is required (e.g., "football", "tennis").
             league (str): The league for which the URL is required (e.g., "premier-league").
-            season (Optional[str]): The season for which the URL is required in 'YYYY-YYYY' format 
-                (e.g., "2023-2024"). If not provided, the URL for the current season is returned.
+            season (Optional[str]): The season for which the URL is required. For most sports, 'YYYY-YYYY' format (e.g., "2023-2024"). For baseball/MLB, 'YYYY' format (e.g., "2024").
+                If not provided, the URL for the current season is returned.
 
         Returns:
             str: The constructed URL for the league and season.
 
         Raises:
-            ValueError: If the season is provided but does not follow the expected 'YYYY-YYYY' format.
+            ValueError: If the season is provided but does not follow the expected format for the sport.
         """
         base_url = URLBuilder.get_league_url(sport, league)
 
         if not season:
             return base_url
 
+        # Special case for baseball/MLB: season is a single year (YYYY)
+        from src.utils.sport_market_constants import Sport as SportEnum
+        sport_enum = SportEnum(sport)
+        if sport_enum == SportEnum.BASEBALL:
+            if not re.match(r"^\d{4}$", season):
+                raise ValueError(f"Invalid season format for baseball: {season}. Expected format: 'YYYY'.")
+            # Remove trailing slash for correct URL join
+            if base_url.endswith("/"):
+                base_url = base_url[:-1]
+            return f"{base_url}-{season}/results/"
+
+        # Default: expect 'YYYY-YYYY' format
         if not re.match(r"^\d{4}-\d{4}$", season):
             raise ValueError(f"Invalid season format: {season}. Expected format: 'YYYY-YYYY'.")
 
+        if base_url.endswith("/"):
+            base_url = base_url[:-1]
         return f"{base_url}-{season}/results/"
 
     @staticmethod
@@ -87,4 +101,7 @@ class URLBuilder:
         if league not in leagues:
             raise ValueError(f"Invalid league '{league}' for sport '{sport}'. Available: {', '.join(leagues.keys())}")
 
-        return leagues[league]
+        url = leagues[league]
+        if not url.endswith("/"):
+            url += "/"
+        return url

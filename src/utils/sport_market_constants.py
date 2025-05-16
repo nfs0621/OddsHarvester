@@ -6,6 +6,7 @@ class Sport(Enum):
     TENNIS = "tennis"
     BASKETBALL = "basketball"
     RUGBY_LEAGUE = "rugby-league"
+    BASEBALL = "baseball"
 
 class FootballMarket(Enum):
     """Football-specific markets."""
@@ -231,3 +232,9 @@ class RugbyLeagueMarket(Enum):
     HANDICAP_PLUS_12_5 = "handicap_+12_5"
     HANDICAP_MINUS_16_5 = "handicap_-16_5"
     HANDICAP_PLUS_16_5 = "handicap_+16_5"
+
+class BaseballMarket(Enum):
+    """Baseball-specific markets."""
+    MONEYLINE = "moneyline"
+    OVER_UNDER = "over_under"
+    RUN_LINE = "run_line"

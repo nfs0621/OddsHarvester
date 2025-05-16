@@ -1,5 +1,5 @@
 ODDSPORTAL_BASE_URL = "https://www.oddsportal.com"
-ODDS_FORMAT = "Decimal Odds"
+ODDS_FORMAT = "Money Line Odds"
 
 SCRAPE_CONCURRENCY_TASKS = 3
 

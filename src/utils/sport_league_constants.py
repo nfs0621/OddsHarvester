@@ -126,4 +126,7 @@ SPORTS_LEAGUES_URLS_MAPPING = {
         "france-nrl": "https://www.oddsportal.com/rugby-league/france/elite-1/",
         "world-cup": "https://www.oddsportal.com/rugby-league/world/world-cup/"
     },
+    Sport.BASEBALL: {
+        "mlb": "https://www.oddsportal.com/baseball/usa/mlb/"
+    }
 }
