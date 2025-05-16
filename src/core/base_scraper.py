@@ -7,6 +7,7 @@ from .playwright_manager import PlaywrightManager
 from .browser_helper import BrowserHelper
 from .odds_portal_market_extractor import OddsPortalMarketExtractor
 from utils.constants import ODDSPORTAL_BASE_URL, ODDS_FORMAT, SCRAPE_CONCURRENCY_TASKS
+from utils.sport_market_constants import BaseballMarket # Added import
 
 class BaseScraper:
     """
@@ -30,6 +31,16 @@ class BaseScraper:
         self.browser_helper = browser_helper
         self.market_extractor = market_extractor
 
+    def _sanitize_bookmaker_name(self, name: str) -> str:
+        """
+        Sanitizes a bookmaker name to be used in a column header.
+        Replaces spaces and special characters with underscores and converts to lowercase.
+        """
+        name = name.lower()
+        name = re.sub(r'\\s+', '_', name)  # Replace spaces with underscores
+        name = re.sub(r'[^a-zA-Z0-9_]', '', name)  # Remove special characters except underscore
+        return name
+
     async def set_odds_format(
         self, 
         page: Page, 
@@ -43,41 +54,60 @@ class BaseScraper:
             odds_format (str): The desired odds format.
         """
         try:
-            self.logger.info(f"Setting odds format: {odds_format}")
+            self.logger.info(f"Attempting to set odds format to: {odds_format}")
             button_selector = "div.group > button.gap-2"
-            await page.wait_for_selector(button_selector, state="attached", timeout=8000)
+            # Increased timeout for stability, ensure button is interactable
+            await page.wait_for_selector(button_selector, state="visible", timeout=10000)
             dropdown_button = await page.query_selector(button_selector)
 
-            # Check if the desired format is already selected
-            current_format = await dropdown_button.inner_text()
-            self.logger.info(f"Current odds format detected: {current_format}")
+            if not dropdown_button:
+                self.logger.error("Odds format dropdown button not found.")
+                return
 
-            if current_format == odds_format:
-                self.logger.info(f"Odds format is already set to '{odds_format}'. Skipping.")
+            current_format_text = await dropdown_button.inner_text()
+            self.logger.info(f"Current odds format detected on button: {current_format_text}")
+
+            # Normalize comparison
+            if odds_format.lower() in current_format_text.lower():
+                self.logger.info(f"Odds format already appears to be '{odds_format}'. Skipping change.")
                 return
 
             await dropdown_button.click()
-            await page.wait_for_timeout(5000)
-            format_option_selector = "div.group > div.dropdown-content > ul > li > a"
+            # Wait for dropdown content to be visible
+            dropdown_content_selector = "div.group > div.dropdown-content"
+            await page.wait_for_selector(dropdown_content_selector, state="visible", timeout=5000)
+            
+            format_option_selector = f"{dropdown_content_selector} > ul > li > a"
             format_options = await page.query_selector_all(format_option_selector)
 
+            found_option = False
             for option in format_options:
                 option_text = await option.inner_text()
-
-                if odds_format.lower() in option_text.lower():
-                    self.logger.info(f"Selecting odds format: {option_text}")
+                if option_text and odds_format.lower() in option_text.lower():
+                    self.logger.info(f"Found matching odds format option: {option_text}. Clicking.")
                     await option.click()
-                    await page.wait_for_timeout(5000)
-                    self.logger.info(f"Odds format changed to '{odds_format}'.")
-                    return
+                    
+                    # Wait for the dropdown to close by checking for its absence or invisibility
+                    await page.wait_for_selector(dropdown_content_selector, state="hidden", timeout=5000)
+                    # Add a small delay for the page to update the button text
+                    await page.wait_for_timeout(1000) 
+
+                    # Verify the change by re-checking the button text
+                    updated_format_text = await dropdown_button.inner_text()
+                    if odds_format.lower() in updated_format_text.lower():
+                        self.logger.info(f"Odds format successfully changed to '{odds_format}'. Button text: {updated_format_text}")
+                    else:
+                        self.logger.warning(f"Attempted to change odds format to '{odds_format}', but button text is now '{updated_format_text}'.")
+                    found_option = True
+                    break
             
-            self.logger.warning(f"Desired odds format '{odds_format}' not found in dropdown options.")
+            if not found_option:
+                self.logger.warning(f"Desired odds format '{odds_format}' not found in dropdown options.")
 
-        except TimeoutError:
-            self.logger.error("Timeout while setting odds format. Dropdown may not have loaded.")
-
+        except TimeoutError as e:
+            self.logger.error(f"Timeout error during set_odds_format: {e}")
         except Exception as e:
-            self.logger.error(f"Error while setting odds format: {e}", exc_info=True)
+            self.logger.error(f"General error in set_odds_format: {e}", exc_info=True)
     
     async def extract_match_links(
         self, 
@@ -145,6 +175,9 @@ class BaseScraper:
                 
                 try:
                     tab = await self.playwright_manager.context.new_page()
+                    # Ensure the odds format is set for the new page
+                    await self.set_odds_format(tab, odds_format=ODDS_FORMAT)
+                    
                     data = await self._scrape_match_data(
                         page=tab, 
                         sport=sport, 
@@ -209,8 +242,8 @@ class BaseScraper:
                 return None
 
             if markets:
-                self.logger.info(f"Scraping markets: {markets}")
-                market_data = await self.market_extractor.scrape_markets(
+                self.logger.info(f"Scraping markets: {markets} for sport: {sport}")
+                market_data_from_extractor = await self.market_extractor.scrape_markets(
                     page=page, 
                     sport=sport, 
                     markets=markets,
@@ -218,8 +251,42 @@ class BaseScraper:
                     scrape_odds_history=scrape_odds_history,
                     target_bookmaker=target_bookmaker
                 )
-                match_details.update(market_data)
+                
+                for market_key, odds_list in market_data_from_extractor.items():
+                    # market_key is like "moneyline_market"
+                    # odds_list is a list of dicts, e.g., [{"1": "1.90", "2": "1.95", "bookmaker_name": "Pinnacle", ...}]
+                    
+                    if sport.lower() == "baseball" and \
+                       market_key == f"{BaseballMarket.MONEYLINE.value}_market" and \
+                       isinstance(odds_list, list) and odds_list:
+                        
+                        self.logger.info(f"Processing baseball moneyline for individual bookmaker columns for {match_link}")
+                        # Assuming moneyline uses "1" for home and "2" for away as per previous logic/constants
+                        # These labels might need to be dynamically fetched or passed if they can vary
+                        home_odds_label = "1" 
+                        away_odds_label = "2"
 
+                        for bookmaker_odds_data in odds_list:
+                            if isinstance(bookmaker_odds_data, dict):
+                                bookmaker_name = bookmaker_odds_data.get("bookmaker_name")
+                                home_odds_value = bookmaker_odds_data.get(home_odds_label)
+                                away_odds_value = bookmaker_odds_data.get(away_odds_label)
+
+                                if bookmaker_name and home_odds_value is not None and away_odds_value is not None:
+                                    sanitized_name = self._sanitize_bookmaker_name(bookmaker_name)
+                                    match_details[f"home_odds_{sanitized_name}"] = home_odds_value
+                                    match_details[f"away_odds_{sanitized_name}"] = away_odds_value
+                                    # Optionally, store other info like period per bookmaker if needed
+                                    # match_details[f"period_{sanitized_name}"] = bookmaker_odds_data.get("period")
+                                else:
+                                    self.logger.warning(f"Skipping bookmaker due to missing name or odds in baseball moneyline: {bookmaker_odds_data}")
+                        # After processing, we might not want to add the original market_key to match_details
+                        # if it contains redundant or differently structured data.
+                        # For now, this means baseball moneyline_market will not be added if processed this way.
+                    else:
+                        # For other markets, or if baseball moneyline wasn't processed above, keep them nested
+                        match_details[market_key] = odds_list
+            
             return match_details
 
         except Error as e:

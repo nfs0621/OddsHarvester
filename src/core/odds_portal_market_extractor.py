@@ -2,9 +2,10 @@ import re, logging
 from typing import Dict, Any, List
 from playwright.async_api import Page
 from bs4 import BeautifulSoup
+from datetime import datetime, timezone
+from zoneinfo import ZoneInfo # Added import
 from .browser_helper import BrowserHelper
 from .sport_market_registry import SportMarketRegistry
-from datetime import datetime, timezone
 
 class OddsPortalMarketExtractor:
     """
@@ -112,6 +113,9 @@ class OddsPortalMarketExtractor:
             await page.wait_for_timeout(self.SCROLL_PAUSE_TIME)
             html_content = await page.content()
             odds_data = await self._parse_market_odds(html_content=html_content, period=period, odds_labels=odds_labels, target_bookmaker=target_bookmaker)
+
+            # Removed baseball moneyline averaging logic. 
+            # The method will now return all bookmaker odds as parsed by _parse_market_odds.
 
             if scrape_odds_history:
                 self.logger.info("Fetching odds history for all parsed bookmakers.")
@@ -278,11 +282,19 @@ class OddsPortalMarketExtractor:
             timestamps = soup.select("div.flex.flex-col.gap-1 > div.flex.gap-3 > div.font-normal")
             odds_values = soup.select("div.flex.flex-col.gap-1 + div.flex.flex-col.gap-1 > div.font-bold")
 
+            # Determine the year to use, maintaining original logic for now
+            # This could be improved if the actual event year is available
+            year_to_use = datetime.now(timezone.utc).year
+
             for ts, odd in zip(timestamps, odds_values):
                 time_text = ts.get_text(strip=True)
                 try:
-                    dt = datetime.strptime(time_text, "%d %b, %H:%M")
-                    formatted_time = dt.replace(year=datetime.now(timezone.utc).year).isoformat()
+                    dt_naive = datetime.strptime(time_text, "%d %b, %H:%M")
+                    # Assume parsed time is UTC, make it timezone-aware
+                    dt_utc_aware = dt_naive.replace(year=year_to_use, tzinfo=timezone.utc)
+                    # Convert to America/Edmonton timezone
+                    dt_edmonton = dt_utc_aware.astimezone(ZoneInfo("America/Edmonton"))
+                    formatted_time = dt_edmonton.isoformat()
                 except ValueError:
                     self.logger.warning(f"Failed to parse datetime: {time_text}")
                     continue
@@ -297,12 +309,17 @@ class OddsPortalMarketExtractor:
             opening_ts_div = opening_odds_block.select_one("div.flex.gap-1 div")
             opening_val_div = opening_odds_block.select_one("div.flex.gap-1 .font-bold")
 
-            opening_odds = None
+            opening_odds_data = None # Renamed from opening_odds to avoid conflict
             if opening_ts_div and opening_val_div:
                 try:
-                    dt = datetime.strptime(opening_ts_div.get_text(strip=True), "%d %b, %H:%M")
-                    opening_odds = {
-                        "timestamp": dt.replace(year=datetime.now(timezone.utc).year).isoformat(),
+                    opening_time_text = opening_ts_div.get_text(strip=True)
+                    dt_naive = datetime.strptime(opening_time_text, "%d %b, %H:%M")
+                    # Assume parsed time is UTC, make it timezone-aware
+                    dt_utc_aware = dt_naive.replace(year=year_to_use, tzinfo=timezone.utc)
+                    # Convert to America/Edmonton timezone
+                    dt_edmonton = dt_utc_aware.astimezone(ZoneInfo("America/Edmonton"))
+                    opening_odds_data = { # Use new variable name
+                        "timestamp": dt_edmonton.isoformat(),
                         "odds": float(opening_val_div.get_text(strip=True))
                     }
                 except ValueError:
@@ -310,7 +327,7 @@ class OddsPortalMarketExtractor:
 
             return {
                 "odds_history": odds_history,
-                "opening_odds": opening_odds
+                "opening_odds": opening_odds_data # Use new variable name
             }
 
         except Exception as e:
