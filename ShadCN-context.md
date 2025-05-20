@@ -45,3 +45,6 @@ This file tracks the ShadCN UI components that have been added to the `odds_harv
 - **Card** (`@/components/ui/card`)
   - Added: 2025-05-20
   - Command: `npx shadcn@latest add card`
+- **Slider** (`@/components/ui/slider`)
+  - Added: 2025-05-20
+  - Command: `npx shadcn@latest add slider`

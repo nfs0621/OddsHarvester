@@ -54,7 +54,7 @@ export default function HomePage() {
         </div>
 
 
-        <Tabs defaultValue="upcoming" className="w-full flex-1 flex flex-col mb-10">
+        <Tabs defaultValue="historic" className="w-full flex-1 flex flex-col mb-10">
           <TabsList className="grid w-full grid-cols-2 bg-slate-100 dark:bg-dark-card p-1 rounded-lg h-auto mb-6 shadow-sm">
             <TabsTrigger value="upcoming" className="py-2.5 text-sm font-medium text-slate-600 dark:text-dark-text-secondary data-[state=active]:bg-dark-primary dark:data-[state=active]:bg-dark-primary data-[state=active]:text-white dark:data-[state=active]:text-white data-[state=active]:shadow-md rounded-md transition-all duration-150 ease-in-out">
               Scrape Upcoming

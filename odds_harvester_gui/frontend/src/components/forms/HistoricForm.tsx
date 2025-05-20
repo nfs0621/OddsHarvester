@@ -3,7 +3,9 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
+import { useState } from "react";
 
+import { api } from "@/utils/api"; // Import tRPC API
 import { Button } from "@/components/ui/button";
 import {
   Form,
@@ -24,71 +26,106 @@ import {
 } from "@/components/ui/select";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Textarea } from "@/components/ui/textarea";
+import { Slider } from "@/components/ui/slider"; // Added Slider import
 
 const historicFormSchema = z.object({
   sport: z.string().min(1, "Sport is required."),
   league: z.string().min(1, "League is required (e.g., nba, mlb)."),
-  startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Start date must be YYYY-MM-DD."),
-  endDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "End date must be YYYY-MM-DD."),
+  year: z.string().min(4, "Year must be 4 digits.").regex(/^\d{4}$/, "Year must be YYYY."),
+  pagesToScrape: z.number().min(1, "Pages to scrape must be at least 1.").max(100, "Pages to scrape cannot exceed 100.").optional(),
+  scrapeAllPages: z.boolean().default(false),
   outputFormat: z.string().min(1, "Output format is required."),
   storageType: z.string().min(1, "Storage type is required."),
-  headless: z.boolean(), // Removed .default(false)
-  saveLogs: z.boolean(),  // Removed .default(false)
+  headless: z.boolean(),
+  saveLogs: z.boolean(),
   proxies: z.string().optional(),
 }).refine(data => {
-  if (data.startDate && data.endDate) {
-    return new Date(data.startDate) <= new Date(data.endDate);
+  if (!data.scrapeAllPages && data.pagesToScrape === undefined) {
+    return false;
   }
   return true;
 }, {
-  message: "Start date must be before or the same as end date.",
-  path: ["endDate"], // Path to show the error message on
+  message: "Pages to scrape is required if 'Scrape all pages' is not checked.",
+  path: ["pagesToScrape"],
+}).refine(data => {
+  const currentYear = new Date().getFullYear();
+  if (parseInt(data.year, 10) > currentYear) {
+    return false;
+  }
+  return true;
+}, {
+  message: "Year cannot be in the future.",
+  path: ["year"],
 });
 
 type HistoricFormValues = z.infer<typeof historicFormSchema>;
 
 // Default values for the form
-const defaultValues: HistoricFormValues = { // Use HistoricFormValues directly
-  sport: "all",
-  league: "",
-  startDate: "", // Will be validated by Zod for format
-  endDate: "",   // Will be validated by Zod for format
+const defaultValues: HistoricFormValues = { // Changed Partial<HistoricFormValues> to HistoricFormValues
+  sport: "baseball", // Changed default to baseball
+  league: "MLB", // Changed default to MLB
+  year: "2024", // Default to 2024
+  pagesToScrape: 2, // Default to 2
+  scrapeAllPages: false, // Default to false
   outputFormat: "csv",
   storageType: "local",
-  headless: false, // Explicitly false
-  saveLogs: false, // Explicitly false
-  proxies: "",     // Zod schema has .optional(), so empty string is fine
+  headless: false,
+  saveLogs: false,
+  proxies: "",
 };
 
 export function HistoricForm() {
   const form = useForm<HistoricFormValues>({
     resolver: zodResolver(historicFormSchema),
     defaultValues,
-    mode: "onChange", // Validate on change for better UX
+    mode: "onChange",
+  });
+
+  // State to track if scrapeAllPages is checked, initialized from form's default or false
+  const [scrapeAllPagesChecked, setScrapeAllPagesChecked] = useState(form.getValues("scrapeAllPages") || false);
+
+  // Watch for changes in scrapeAllPages to enable/disable slider
+  const watchScrapeAllPages = form.watch("scrapeAllPages");
+
+  // Generate year options (e.g., last 20 years)
+  const currentYear = new Date().getFullYear();
+  const yearOptions = Array.from({ length: 20 }, (_, i) => (currentYear - i).toString());
+
+  const [submissionStatus, setSubmissionStatus] = useState<{ type: 'idle' | 'loading' | 'success' | 'error'; message: string }>({ type: 'idle', message: '' });
+
+  const historicScrapeMutation = api.scrape.scrapeHistoric.useMutation({
+    onMutate: () => {
+      setSubmissionStatus({ type: 'loading', message: 'Submitting...' });
+    },
+    onSuccess: (data) => {
+      console.log("Historic Scrape Success:", data);
+      setSubmissionStatus({ type: 'success', message: data.message || 'Scraping initiated successfully!' });
+      // form.reset(); // Optionally reset form
+    },
+    onError: (error) => {
+      console.error("Historic Scrape Error:", error);
+      setSubmissionStatus({ type: 'error', message: error.message || 'An error occurred.' });
+    },
   });
 
   async function onSubmit(data: HistoricFormValues) {
     console.log("Submitting Historic Form:", data);
-    // TODO: API call to backend
-    // Example:
-    // try {
-    //   const response = await fetch('/api/scrape_historic', {
-    //     method: 'POST',
-    //     headers: { 'Content-Type': 'application/json' },
-    //     body: JSON.stringify(data),
-    //   });
-    //   const result = await response.json();
-    //   console.log('API Response:', result);
-    //   // form.reset(); // Optionally reset form on success
-    // } catch (error) {
-    //   console.error('API Error:', error);
-    //   // Handle error display to user, e.g., using form.setError
-    // }
+    // Ensure pagesToScrape is a number or undefined, not null if scrapeAllPages is true
+    const submissionData = {
+      ...data,
+      pagesToScrape: data.scrapeAllPages ? undefined : (data.pagesToScrape || 2),
+    };
+    historicScrapeMutation.mutate(submissionData);
   }
 
   return (
     <Form {...form}>
       <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-8">
+        {submissionStatus.type !== 'idle' && (
+          <div className={`p-4 rounded-md ${submissionStatus.type === 'success' ? 'bg-green-100 text-green-700' : submissionStatus.type === 'error' ? 'bg-red-100 text-red-700' : 'bg-blue-100 text-blue-700'}`}>
+            {submissionStatus.message}
+          </div>
+        )}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-8">
           <FormField
             control={form.control}
@@ -98,7 +135,6 @@ export function HistoricForm() {
                 <FormLabel>Sport</FormLabel>
                 <Select onValueChange={field.onChange} defaultValue={field.value}>
                   <FormControl>
-                    {/* Only one child allowed in FormControl */}
                     <SelectTrigger>
                       <SelectValue placeholder="Select sport" />
                     </SelectTrigger>
@@ -124,7 +160,7 @@ export function HistoricForm() {
                 <FormControl>
                   <Input
                     placeholder="Enter league abbreviation"
-                    {...Object.fromEntries(Object.entries(field).filter(([k]) => k !== "children"))}
+                    {...field}
                   />
                 </FormControl>
                 <FormMessage />
@@ -133,18 +169,53 @@ export function HistoricForm() {
           />
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-8">
+        {/* Year Selector */}
+        <FormField
+          control={form.control}
+          name="year"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>Year</FormLabel>
+              <Select onValueChange={field.onChange} defaultValue={field.value}>
+                <FormControl>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select year" />
+                  </SelectTrigger>
+                </FormControl>
+                <SelectContent>
+                  {yearOptions.map(y => (
+                    <SelectItem key={y} value={y}>{y}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+
+        {/* Pages to Scrape Slider and All Pages Checkbox */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-8 items-end">
           <FormField
             control={form.control}
-            name="startDate"
+            name="pagesToScrape"
             render={({ field }) => (
               <FormItem>
-                <FormLabel>Start Date (YYYY-MM-DD)</FormLabel>
+                <FormLabel>Pages to Scrape (1-100)</FormLabel>
                 <FormControl>
-                  <Input
-                    type="date"
-                    {...Object.fromEntries(Object.entries(field).filter(([k]) => k !== "children"))}
-                  />
+                  <div className="flex items-center space-x-2">
+                    <Slider
+                      defaultValue={[field.value || 2]} // Default to 2 if undefined
+                      min={1}
+                      max={100}
+                      step={1}
+                      disabled={watchScrapeAllPages} // Disable if scrapeAllPages is true
+                      onValueChange={(value) => field.onChange(value[0])}
+                      className="w-[80%]"
+                    />
+                    <span className="w-[20%] text-center">
+                      {watchScrapeAllPages ? 'All' : (field.value || '2')}
+                    </span>
+                  </div>
                 </FormControl>
                 <FormMessage />
               </FormItem>
@@ -152,16 +223,27 @@ export function HistoricForm() {
           />
           <FormField
             control={form.control}
-            name="endDate"
+            name="scrapeAllPages"
             render={({ field }) => (
-              <FormItem>
-                <FormLabel>End Date (YYYY-MM-DD)</FormLabel>
+              <FormItem className="flex flex-row items-center space-x-2 space-y-0 justify-start md:pt-8">
                 <FormControl>
-                  <Input
-                    type="date"
-                    {...Object.fromEntries(Object.entries(field).filter(([k]) => k !== "children"))}
+                  <Checkbox
+                    checked={field.value}
+                    onCheckedChange={(checked) => {
+                      const isChecked = !!checked;
+                      field.onChange(isChecked);
+                      setScrapeAllPagesChecked(isChecked); // Update local state
+                      if (isChecked) {
+                        form.setValue("pagesToScrape", undefined, { shouldValidate: true });
+                      } else {
+                        form.setValue("pagesToScrape", 2, { shouldValidate: true });
+                      }
+                    }}
                   />
                 </FormControl>
+                <div className="space-y-1 leading-none">
+                  <FormLabel>Scrape All Pages</FormLabel>
+                </div>
                 <FormMessage />
               </FormItem>
             )}
@@ -177,7 +259,6 @@ export function HistoricForm() {
                 <FormLabel>Output Format</FormLabel>
                 <Select onValueChange={field.onChange} defaultValue={field.value}>
                   <FormControl>
-                    {/* Only one child allowed in FormControl */}
                     <SelectTrigger>
                       <SelectValue placeholder="Select format" />
                     </SelectTrigger>
@@ -200,7 +281,6 @@ export function HistoricForm() {
                 <FormLabel>Storage Type</FormLabel>
                 <Select onValueChange={field.onChange} defaultValue={field.value}>
                   <FormControl>
-                    {/* Only one child allowed in FormControl */}
                     <SelectTrigger>
                       <SelectValue placeholder="Select storage" />
                     </SelectTrigger>
@@ -223,22 +303,11 @@ export function HistoricForm() {
             <FormItem>
               <FormLabel>Proxies (Optional, one per line)</FormLabel>
               <FormControl>
-                {(() => {
-                  // Debug log to catch multiple children
-                  const child = (
-                    <Textarea
-                      placeholder="user:password@proxy.example.com:8080&#10;anotherproxy.example.com:3128"
-                      rows={3}
-                      {...Object.fromEntries(Object.entries(field).filter(([k]) => k !== "children"))}
-                    />
-                  );
-                  // @ts-ignore
-                  if (Array.isArray(child)) {
-                    // eslint-disable-next-line no-console
-                    console.error("FormControl received multiple children in proxies field", child);
-                  }
-                  return child;
-                })()}
+                <Textarea
+                  placeholder="user:password@proxy.example.com:8080&#10;anotherproxy.example.com:3128"
+                  rows={3}
+                  {...field}
+                />
               </FormControl>
               <FormDescription className="text-slate-500">
                 Enter one proxy per line (e.g., user:pass@host:port or host:port).
@@ -253,26 +322,15 @@ export function HistoricForm() {
             control={form.control}
             name="headless"
             render={({ field }) => (
-              <FormItem className="flex flex-row items-center space-x-2 space-y-0"> {/* items-center for better alignment */}
+              <FormItem className="flex flex-row items-center space-x-2 space-y-0">
                 <FormControl>
-                  {(() => {
-                    // Debug log to catch multiple children
-                    const child = (
-                      <Checkbox
-                        checked={field.value}
-                        onCheckedChange={field.onChange}
-                      />
-                    );
-                    // @ts-ignore
-                    if (Array.isArray(child)) {
-                      // eslint-disable-next-line no-console
-                      console.error("FormControl received multiple children in headless field", child);
-                    }
-                    return child;
-                  })()}
+                  <Checkbox
+                    checked={field.value}
+                    onCheckedChange={field.onChange}
+                  />
                 </FormControl>
                 <div className="space-y-1 leading-none">
-                  <FormLabel>Run Headless</FormLabel> {/* Default weight */}
+                  <FormLabel>Run Headless</FormLabel>
                   <FormDescription className="text-slate-500">
                     Run the browser in headless mode (no UI).
                   </FormDescription>
@@ -284,26 +342,15 @@ export function HistoricForm() {
             control={form.control}
             name="saveLogs"
             render={({ field }) => (
-              <FormItem className="flex flex-row items-center space-x-2 space-y-0"> {/* items-center for better alignment */}
+              <FormItem className="flex flex-row items-center space-x-2 space-y-0">
                 <FormControl>
-                  {(() => {
-                    // Debug log to catch multiple children
-                    const child = (
-                      <Checkbox
-                        checked={field.value}
-                        onCheckedChange={field.onChange}
-                      />
-                    );
-                    // @ts-ignore
-                    if (Array.isArray(child)) {
-                      // eslint-disable-next-line no-console
-                      console.error("FormControl received multiple children in saveLogs field", child);
-                    }
-                    return child;
-                  })()}
+                  <Checkbox
+                    checked={field.value}
+                    onCheckedChange={field.onChange}
+                  />
                 </FormControl>
                 <div className="space-y-1 leading-none">
-                  <FormLabel>Save Logs</FormLabel> {/* Default weight */}
+                  <FormLabel>Save Logs</FormLabel>
                   <FormDescription className="text-slate-500">
                     Save scraping logs to a file.
                   </FormDescription>
@@ -313,8 +360,12 @@ export function HistoricForm() {
           />
         </div>
 
-        <Button type="submit" className="bg-cyan-600 hover:bg-cyan-700 text-white font-semibold py-2 px-4 rounded-md">
-          Start Scraping Historic Odds
+        <Button
+          type="submit"
+          className="bg-cyan-600 hover:bg-cyan-700 text-white font-semibold py-2 px-4 rounded-md"
+          disabled={historicScrapeMutation.isLoading}
+        >
+          {historicScrapeMutation.isLoading ? "Scraping..." : "Start Scraping Historic Odds"}
         </Button>
       </form>
     </Form>
