@@ -72,13 +72,55 @@ class LocalDataStorage:
     ):
         """Save data in CSV format."""
         try:
-            with open(file_path, mode="a", newline="", encoding="utf-8") as file:
-                writer = csv.DictWriter(file, fieldnames=data[0].keys())
-
-                # Write header only if the file is newly created
-                if os.path.getsize(file_path) == 0:
+            # Get all possible fieldnames across all data records
+            # This handles the case where different records have different fields
+            all_fieldnames = set()
+            for record in data:
+                all_fieldnames.update(record.keys())
+            
+            # Sort fieldnames for consistency
+            sorted_fieldnames = sorted(list(all_fieldnames))
+            
+            # Check if file exists and get existing header if it does
+            file_exists = os.path.exists(file_path) and os.path.getsize(file_path) > 0
+            existing_fieldnames = []
+            
+            if file_exists:
+                with open(file_path, mode="r", newline="", encoding="utf-8") as file:
+                    reader = csv.reader(file)
+                    existing_fieldnames = next(reader, [])  # Get header row
+                
+                # If file exists but has different fields, merge them
+                for field in sorted_fieldnames:
+                    if field not in existing_fieldnames:
+                        existing_fieldnames.append(field)
+                
+                # Create a temporary file with the updated fields
+                temp_file_path = file_path + ".tmp"
+                with open(file_path, mode="r", newline="", encoding="utf-8") as infile, \
+                     open(temp_file_path, mode="w", newline="", encoding="utf-8") as outfile:
+                    
+                    reader = csv.DictReader(infile)
+                    writer = csv.DictWriter(outfile, fieldnames=existing_fieldnames)
                     writer.writeheader()
-
+                    
+                    # Copy existing data with field expansion
+                    for row in reader:
+                        writer.writerow(row)
+                
+                # Replace original file with temp file
+                os.replace(temp_file_path, file_path)
+            
+            # Now append the new data
+            with open(file_path, mode="a", newline="", encoding="utf-8") as file:
+                # Use the merged fieldnames if file existed, otherwise use sorted_fieldnames
+                fieldnames_to_use = existing_fieldnames if file_exists else sorted_fieldnames
+                writer = csv.DictWriter(file, fieldnames=fieldnames_to_use)
+                
+                # Write header if file is new
+                if not file_exists:
+                    writer.writeheader()
+                
                 writer.writerows(data)
 
             self.logger.info(f"Successfully saved {len(data)} record(s) to {file_path}")

@@ -3,7 +3,7 @@ from typing import Optional, List, Dict, Any
 from .url_builder import URLBuilder
 from .base_scraper import BaseScraper
 from playwright.async_api import Page
-from utils.constants import ODDSPORTAL_BASE_URL
+from ..utils.constants import ODDSPORTAL_BASE_URL # Changed to relative
 
 class OddsPortalScraper(BaseScraper):
     """

@@ -1,13 +1,14 @@
 import logging, re, json, asyncio
 from typing import List, Dict, Optional, Any
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
+from zoneinfo import ZoneInfo  # Added import for timezone conversion
 from bs4 import BeautifulSoup
 from playwright.async_api import Page, TimeoutError, Error
 from .playwright_manager import PlaywrightManager
 from .browser_helper import BrowserHelper
 from .odds_portal_market_extractor import OddsPortalMarketExtractor
-from utils.constants import ODDSPORTAL_BASE_URL, ODDS_FORMAT, SCRAPE_CONCURRENCY_TASKS
-from utils.sport_market_constants import BaseballMarket # Added import
+from ..utils.constants import ODDSPORTAL_BASE_URL, ODDS_FORMAT, SCRAPE_CONCURRENCY_TASKS # Changed to relative
+from ..utils.sport_market_constants import BaseballMarket # Changed to relative
 
 class BaseScraper:
     """
@@ -30,6 +31,135 @@ class BaseScraper:
         self.playwright_manager = playwright_manager
         self.browser_helper = browser_helper
         self.market_extractor = market_extractor
+
+    def _determine_game_type(self, match_link: str, tournament_name: str, season_type: str = None, tournament_stage: str = None) -> str:
+        """
+        Determine the type of game (regular season, playoffs, preseason, etc.) 
+        based on the match URL, tournament name, season type, and tournament stage.
+        
+        Args:
+            match_link (str): The URL of the match page
+            tournament_name (str): The name of the tournament/league
+            season_type (str, optional): The season type if available from the JSON data
+            tournament_stage (str, optional): The tournament stage if available from the JSON data
+            
+        Returns:
+            str: The determined game type
+        """
+        # Add debug logging to track classification decisions
+        self.logger.debug(f"Determining game type for match: {match_link}")
+        self.logger.debug(f"Input data: season_type={season_type}, tournament_name={tournament_name}, tournament_stage={tournament_stage}")
+        
+        # Convert inputs to lowercase for easier matching
+        link_lower = match_link.lower() if match_link else ""
+        tournament_lower = tournament_name.lower() if tournament_name else ""
+        season_type_lower = season_type.lower() if season_type else ""
+        tournament_stage_lower = tournament_stage.lower() if tournament_stage else ""
+        
+        # Check for MLB-specific identifiers
+        if "baseball/usa/mlb" in link_lower:
+            # 1. Check tournament stage first (most specific)
+            if tournament_stage_lower:
+                self.logger.debug(f"Checking tournament stage: {tournament_stage_lower}")
+                if any(term in tournament_stage_lower for term in ["playoff", "post", "world series", "wild card", "championship series", "division series"]):
+                    self.logger.debug("Classified as playoffs based on tournament stage")
+                    return "playoffs"
+                elif any(term in tournament_stage_lower for term in ["spring training", "pre", "exhibition"]):
+                    self.logger.debug("Classified as preseason based on tournament stage")
+                    return "preseason"
+                elif "all-star" in tournament_stage_lower or "all star" in tournament_stage_lower:
+                    self.logger.debug("Classified as exhibition based on tournament stage (All-Star)")
+                    return "exhibition"
+            
+            # 2. Then check season type
+            if season_type_lower:
+                self.logger.debug(f"Checking season type: {season_type_lower}")
+                if any(term in season_type_lower for term in ["playoff", "post"]):
+                    self.logger.debug("Classified as playoffs based on season type")
+                    return "playoffs"
+                elif any(term in season_type_lower for term in ["pre", "spring"]):
+                    self.logger.debug("Classified as preseason based on season type")
+                    return "preseason"
+            
+            # 3. Then check tournament name
+            self.logger.debug(f"Checking tournament name: {tournament_lower}")
+            if tournament_lower:
+                if "spring training" in tournament_lower:
+                    self.logger.debug("Classified as preseason based on tournament name (Spring Training)")
+                    return "preseason"
+                elif "all-star" in tournament_lower or "all star" in tournament_lower:
+                    self.logger.debug("Classified as exhibition based on tournament name (All-Star)")
+                    return "exhibition"
+                elif any(term in tournament_lower for term in ["world series", "playoff", "postseason", "wild card", "division series", "championship series"]):
+                    self.logger.debug("Classified as playoffs based on tournament name")
+                    return "playoffs"
+            
+            # 4. Then check URL for specific patterns
+            self.logger.debug(f"Checking URL: {link_lower}")
+            # Extract the specific part of the URL after mlb-year/
+            mlb_part_match = re.search(r'mlb-[0-9]{4}/([^/]+)', link_lower)
+            if mlb_part_match:
+                mlb_specific_part = mlb_part_match.group(1)
+                self.logger.debug(f"Extracted MLB-specific URL part: {mlb_specific_part}")
+                
+                if any(term in mlb_specific_part for term in ["playoff", "post-season", "world-series", "wild-card", "division-series", "championship-series"]):
+                    self.logger.debug("Classified as playoffs based on URL specific part")
+                    return "playoffs"
+                elif "spring-training" in mlb_specific_part:
+                    self.logger.debug("Classified as preseason based on URL specific part (Spring Training)")
+                    return "preseason"
+                elif "all-star" in mlb_specific_part:
+                    self.logger.debug("Classified as exhibition based on URL specific part (All-Star)")
+                    return "exhibition"
+        
+        # General pattern matching (for all sports)
+        # Game type patterns to check
+        game_type_patterns = {
+            "playoffs": [
+                "playoff", "post-season", "postseason", "world series", "wild card", "wildcard",
+                "division series", "championship series", "final", "finals", "semifinal"
+            ],
+            "preseason": [
+                "pre-season", "preseason", "spring training", "exhibition game", "warm-up",
+                "preparatory", "friendly match"
+            ],
+            "exhibition": [
+                "exhibition", "all-star", "all star", "all-stars", "friendly", "charity",
+                "showcase", "celebrity", "demo", "demonstration"
+            ],
+            "qualification": [
+                "qualification", "qualifier", "qualifying", "prelim", "preliminary",
+                "play-in", "play in", "knockout stage", "group stage"
+            ]
+        }
+        
+        # Check URL and tournament name for patterns
+        for game_type, patterns in game_type_patterns.items():
+            for pattern in patterns:
+                if (pattern in link_lower) or (tournament_lower and pattern in tournament_lower):
+                    self.logger.debug(f"Classified as {game_type} based on pattern '{pattern}' found in URL or tournament name")
+                    return game_type
+        
+        # Default to regular season if no pattern matched
+        self.logger.debug("No specific game type patterns found, defaulting to regular_season")
+        return "regular_season"
+
+    def _is_non_regular_season_game(self, match_link: str, tournament_name: str) -> bool:
+        """
+        Determine if a game is a non-regular season game (playoffs, preseason, etc.)
+        by examining the match URL and tournament name.
+        
+        Args:
+            match_link (str): The URL of the match page
+            tournament_name (str): The name of the tournament/league
+            
+        Returns:
+            bool: True if the game is a non-regular season game, False otherwise
+        """
+        # This method is kept for backward compatibility but its implementation is changed
+        # to use _determine_game_type
+        game_type = self._determine_game_type(match_link, tournament_name)
+        return game_type != "regular_season"
 
     def _sanitize_bookmaker_name(self, name: str) -> str:
         """
@@ -175,8 +305,6 @@ class BaseScraper:
                 
                 try:
                     tab = await self.playwright_manager.context.new_page()
-                    # Ensure the odds format is set for the new page
-                    await self.set_odds_format(tab, odds_format=ODDS_FORMAT)
                     
                     data = await self._scrape_match_data(
                         page=tab, 
@@ -241,6 +369,14 @@ class BaseScraper:
                 self.logger.warning(f"No match details found for {match_link}")
                 return None
 
+            # Filter out non-regular season games if we have tournament info
+            tournament_name = match_details.get("league_name")
+            is_regular_season = match_details.get("is_regular_season", True)
+            game_type = match_details.get("game_type", "regular_season")
+            
+            # No longer filtering games by type, keeping all games
+            # Instead, the game_type field can be used for filtering later if needed
+            
             if markets:
                 self.logger.info(f"Scraping markets: {markets} for sport: {sport}")
                 market_data_from_extractor = await self.market_extractor.scrape_markets(
@@ -317,6 +453,10 @@ class BaseScraper:
         
             try:
                 json_data = json.loads(script_tag.get('data'))
+                
+                # Log the full JSON structure for games to analyze type indicators
+                # This helps debug game type classification issues
+                self.logger.debug(f"Event header JSON for game type analysis: {json.dumps(json_data, indent=2)}")
 
             except (TypeError, json.JSONDecodeError):
                 self.logger.error("Error: Failed to parse JSON data.")
@@ -324,16 +464,61 @@ class BaseScraper:
 
             event_body = json_data.get("eventBody", {})
             event_data = json_data.get("eventData", {})
+            
+            # Extract all potentially useful game type indicators
+            season_type = event_data.get("seasonType")
+            tournament_name = event_data.get("tournamentName")
+            tournament_stage = event_data.get("tournamentStage")
+            
+            # Use the current URL to get match_link
+            match_link = page.url
+            
+            # Log more details to help debug game type classification
+            self.logger.debug(f"Game type indicators: URL={match_link}, tournament={tournament_name}, " +
+                             f"seasonType={season_type}, tournamentStage={tournament_stage}")
+            
+            game_type = self._determine_game_type(match_link, tournament_name, season_type, tournament_stage)
+            
+            # For backward compatibility, keep is_regular_season as well
+            is_regular_season = (game_type == "regular_season")
+            
             unix_timestamp = event_body.get("startDate")
 
-            match_date = (
-                datetime.fromtimestamp(unix_timestamp, tz=timezone.utc).strftime("%Y-%m-%d %H:%M:%S %Z")
-                if unix_timestamp
-                else None
-            )
+            # Process timestamps with graceful fallback for missing tzdata
+            match_date = None
+            if unix_timestamp:
+                # Create UTC datetime object from timestamp
+                dt_utc = datetime.fromtimestamp(unix_timestamp, tz=timezone.utc)
+                
+                # Try to convert to America/Edmonton timezone with fallback for missing tzdata
+                try:
+                    # Attempt to use ZoneInfo for America/Edmonton
+                    dt_edmonton = dt_utc.astimezone(ZoneInfo("America/Edmonton"))
+                    match_date = dt_edmonton.strftime("%Y-%m-%d %H:%M:%S %Z")
+                except Exception as e:
+                    self.logger.warning(f"ZoneInfo error: {e}. Falling back to UTC-7 offset for Edmonton time.")
+                    # Fallback to a fixed offset approximation for Edmonton (UTC-7, or UTC-6 during DST)
+                    # This is an approximation - for production use, determine correct DST dates
+                    # For simplicity, we'll use UTC-7 (Mountain Standard Time) year-round here
+                    mtn_offset = timedelta(hours=-7)
+                    dt_edmonton_approx = dt_utc.astimezone(timezone(mtn_offset))
+                    match_date = dt_edmonton_approx.strftime("%Y-%m-%d %H:%M:%S GMT-0700")
+                    self.logger.info("Install 'tzdata' package to fix timezone issues: 'pip install tzdata'")
+
+            # Also convert current time for scraped_date to Edmonton timezone with fallback
+            try:
+                now_utc = datetime.now(timezone.utc)
+                now_edmonton = now_utc.astimezone(ZoneInfo("America/Edmonton"))
+                scraped_date = now_edmonton.strftime("%Y-%m-%d %H:%M:%S %Z")
+            except Exception as e:
+                self.logger.warning(f"ZoneInfo error for scraped_date: {e}. Falling back to UTC-7 offset.")
+                # Fallback to a fixed offset approximation
+                mtn_offset = timedelta(hours=-7)
+                now_edmonton_approx = now_utc.astimezone(timezone(mtn_offset))
+                scraped_date = now_edmonton_approx.strftime("%Y-%m-%d %H:%M:%S GMT-0700")
 
             return {
-                "scraped_date": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S %Z"),
+                "scraped_date": scraped_date,
                 "match_date": match_date,
                 "home_team": event_data.get("home"),
                 "away_team": event_data.get("away"),
@@ -344,6 +529,9 @@ class BaseScraper:
                 "venue": event_body.get("venue"),
                 "venue_town": event_body.get("venueTown"),
                 "venue_country": event_body.get("venueCountry"),
+                "game_type": game_type,  # Add game_type to the returned data
+                "season_type": season_type,  # Add season_type to the returned data
+                "is_regular_season": is_regular_season  # Keep for backward compatibility
             }
         
         except Exception as e:

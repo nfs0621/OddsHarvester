@@ -1,0 +1,6 @@
+# Decision Log
+
+[2025-05-16 21:50:00] - Decided to use Puppeteer MCP server for fetching dynamic content for Baseball O/U markets due to difficulties with Playwright's direct interaction with complex, dynamic tabs.
+[2025-05-16 22:09:00] - Refined Puppeteer MCP server to accept cookie banners and click the "Over/Under" tab specifically using `::-p-text(Over/Under)` selector.
+[2025-05-16 22:20:00] - Further refined Puppeteer MCP server actions to click the first collapsed O/U row after clicking the tab, to get HTML for parsing logic development.
+[2025-05-16 22:45:00] - Switched from multi-step Puppeteer MCP calls back to direct Playwright interaction within `OddsPortalMarketExtractor`. Decided to use `page.evaluate()` to execute a JavaScript snippet. This script will find all `div[data-testid="over-under-collapsed-row"]` elements (the clickable headers for each O/U line) and click each one to expand it. This approach is chosen for better integration with the existing Playwright-based scraper and to simplify the control flow compared to coordinating multiple MCP calls from Python for dynamic interactions on a single page. This keeps the dynamic interaction logic within the Python scraper's direct control via Playwright's capabilities.

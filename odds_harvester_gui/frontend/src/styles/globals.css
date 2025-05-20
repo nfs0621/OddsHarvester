@@ -1,0 +1,71 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 0 0% 100%; /* White */
+    --foreground: 222.2 84% 4.9%; /* Almost black */
+
+    /* ShadCN/ui specific colors (light mode) - you might need to adjust these based on your components.json */
+    --card: 0 0% 100%;
+    --card-foreground: 222.2 84% 4.9%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 222.2 84% 4.9%;
+    --primary: 222.2 47.4% 11.2%;
+    --primary-foreground: 210 40% 98%;
+    --secondary: 210 40% 96.1%;
+    --secondary-foreground: 222.2 47.4% 11.2%;
+    --muted: 210 40% 96.1%;
+    --muted-foreground: 215.4 16.3% 46.9%;
+    --accent: 210 40% 96.1%;
+    --accent-foreground: 222.2 47.4% 11.2%;
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 210 40% 98%;
+    --border: 214.3 31.8% 91.4%;
+    --input: 214.3 31.8% 91.4%;
+    --ring: 222.2 84% 4.9%;
+
+    --radius: 0.5rem;
+  }
+
+  .dark {
+    --background: 224 71% 4%; /* Corresponds to dark-bg: #0A0F1A */
+    --foreground: 210 20% 98%; /* Corresponds to dark-text-primary: #E0E0E0 */
+
+    /* ShadCN/ui specific colors (dark mode) - map your tailwind colors here */
+    --card: 222 47% 11%; /* Corresponds to dark-card: #1A202C */
+    --card-foreground: 210 20% 98%; /* dark-text-primary */
+    --popover: 222 47% 11%; /* dark-card */
+    --popover-foreground: 210 20% 98%; /* dark-text-primary */
+    --primary: 243 70% 67%; /* Corresponds to dark-primary: #6366F1 */
+    --primary-foreground: 210 20% 98%; /* dark-text-primary */
+    --secondary: 260 84% 69%; /* Corresponds to dark-secondary: #8B5CF6 */
+    --secondary-foreground: 210 20% 98%; /* dark-text-primary */
+    --muted: 222 47% 11%; /* dark-card */
+    --muted-foreground: 215 20% 65%; /* A bit darker than dark-text-secondary for muted */
+    --accent: 200 88% 60%; /* Corresponds to dark-accent: #38BDF8 */
+    --accent-foreground: 224 71% 4%; /* dark-bg */
+    --destructive: 0 63% 31%; /* A dark red */
+    --destructive-foreground: 210 20% 98%; /* dark-text-primary */
+    --border: 215 28% 17%; /* Corresponds to dark-border: #2D3748 */
+    --input: 215 28% 17%; /* dark-border */
+    --ring: 243 70% 67%; /* dark-primary */
+  }
+}
+
+body {
+  background-color: hsl(var(--background));
+  color: hsl(var(--foreground));
+  font-family: -apple-system, BlinkMacSystemFont, Segoe UI, Roboto, Oxygen,
+    Ubuntu, Cantarell, Fira Sans, Droid Sans, Helvetica Neue, sans-serif;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+* {
+  box-sizing: border-box;
+}

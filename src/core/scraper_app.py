@@ -4,8 +4,9 @@ from .browser_helper import BrowserHelper
 from .odds_portal_market_extractor import OddsPortalMarketExtractor
 from .odds_portal_scraper import OddsPortalScraper
 from .sport_market_registry import SportMarketRegistrar
-from utils.command_enum import CommandEnum
-from utils.proxy_manager import ProxyManager
+from ..utils.command_enum import CommandEnum # Changed to relative
+from ..utils.proxy_manager import ProxyManager # Changed to relative
+import sys
 
 logger = logging.getLogger("ScraperApp")
 MAX_RETRIES = 3
@@ -66,6 +67,21 @@ async def run_scraper(
     )
 
     try:
+        # Check for tzdata availability and warn the user if needed
+        try:
+            from zoneinfo import ZoneInfo
+            # Try to use America/Edmonton timezone to check if tzdata is available
+            ZoneInfo("America/Edmonton")
+        except ImportError:
+            logger.warning("zoneinfo module not available - timezone conversion may fail")
+            logger.info("Please use Python 3.9+ for best timezone support")
+        except Exception as e:
+            if "No time zone found with key" in str(e):
+                logger.warning("WARNING: tzdata package is not installed. Timezone conversion will use UTC offsets as fallback.")
+                logger.info("To fix timezone conversion issues, install tzdata: 'pip install tzdata'")
+            else:
+                logger.warning(f"Warning: {e}")
+        
         proxy_config = proxy_manager.get_current_proxy()
         await scraper.start_playwright(
             headless=headless, 

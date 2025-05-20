@@ -1,4 +1,4 @@
-from utils.sport_market_constants import (
+from ..utils.sport_market_constants import ( # Changed to relative
     Sport, FootballOverUnderMarket, FootballEuropeanHandicapMarket, FootballAsianHandicapMarket,
     TennisOverUnderSetsMarket, TennisOverUnderGamesMarket, TennisAsianHandicapGamesMarket, TennisCorrectScoreMarket,
     BasketballOverUnderMarket, BasketballAsianHandicapMarket,
@@ -26,19 +26,23 @@ class SportMarketRegistrar:
     """Handles the registration of betting markets for different sports."""
 
     @staticmethod
-    def create_market_lambda(main_market, specific_market=None, odds_labels=None):
+    def create_market_lambda(main_market, specific_market=None, odds_labels=None, sport_enum_val=None, market_key_enum_val=None):
         """
         Creates a lambda function for market extraction.
+        Passes sport and market_key if provided.
         """
-        return lambda extractor, page, period="FullTime", scrape_odds_history=False, target_bookmaker=None: extractor.extract_market_odds(
-            page=page, 
-            main_market=main_market, 
-            specific_market=specific_market, 
-            period=period, 
-            odds_labels=odds_labels,
-            scrape_odds_history=scrape_odds_history,
-            target_bookmaker=target_bookmaker
-        )
+        return lambda extractor, page, period="FullTime", scrape_odds_history=False, target_bookmaker=None: \
+            extractor.extract_market_odds(
+                page=page, 
+                main_market=main_market, 
+                specific_market=specific_market, 
+                period=period, 
+                odds_labels=odds_labels,
+                scrape_odds_history=scrape_odds_history,
+                target_bookmaker=target_bookmaker,
+                sport=sport_enum_val, # Pass sport if available
+                market_key=market_key_enum_val # Pass market_key if available
+            )
 
     @classmethod
     def register_football_markets(cls):
@@ -215,19 +219,27 @@ class SportMarketRegistrar:
     @classmethod
     def register_baseball_markets(cls):
         """Registers all baseball betting markets."""
-        from utils.sport_market_constants import BaseballMarket
+        from ..utils.sport_market_constants import BaseballMarket # Changed to relative
         SportMarketRegistry.register(Sport.BASEBALL, {
             BaseballMarket.MONEYLINE.value: cls.create_market_lambda(
-                main_market="Home/Away",
-                odds_labels=["1", "2"]
+                main_market="Home/Away", # Tab name for Moneyline
+                odds_labels=["1", "2"], # Labels for home/away odds
+                sport_enum_val=Sport.BASEBALL.value,
+                market_key_enum_val=BaseballMarket.MONEYLINE.value
             ),
             BaseballMarket.OVER_UNDER.value: cls.create_market_lambda(
-                main_market="Over/Under",
-                odds_labels=["odds_over", "odds_under"]
+                main_market="Over/Under", # Tab name for Over/Under
+                # For O/U (all lines), specific_market is None, odds_labels are for the parser
+                odds_labels=["over_odds", "under_odds"], # These are for the parser if it hits generic path
+                sport_enum_val=Sport.BASEBALL.value,
+                market_key_enum_val=BaseballMarket.OVER_UNDER.value
             ),
             BaseballMarket.RUN_LINE.value: cls.create_market_lambda(
-                main_market="Run Line",
-                odds_labels=["run_line_home", "run_line_away"]
+                main_market="Run Line", # Tab name for Run Line
+                # For Run Line, specific_market is usually None, odds_labels for parser
+                odds_labels=["run_line_home", "run_line_away"], # Labels for home/away run line odds
+                sport_enum_val=Sport.BASEBALL.value,
+                market_key_enum_val=BaseballMarket.RUN_LINE.value
             ),
         })
 
